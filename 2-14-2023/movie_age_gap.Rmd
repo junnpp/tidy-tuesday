@@ -1,0 +1,185 @@
+---
+title: "2/14/2023"
+author: "Junhyeok Park"
+date: "2023-02-14"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(tidyverse)
+library(janitor)
+library(plotly)
+library(forcats)
+```
+
+## Data Cleaning
+```{r}
+# Reference: https://github.com/rfordatascience/tidytuesday/blob/master/data/2023/2023-02-14/readme.md
+
+# load the data and rewrite the column names
+age_gaps = read_csv("http://hollywoodagegap.com/movies.csv") %>% 
+  clean_names()
+
+# convert date type of all columns whose names end with "birthdate" to date
+age_gaps = age_gaps %>% 
+  mutate(
+    across(
+      ends_with("birthdate"),
+      as.Date
+    )
+  )
+
+# notice the order of the characters is not consistent
+age_gaps %>% 
+  summarize(
+    p_1_older = mean(actor_1_age > actor_2_age),
+    p_1_male = mean(actor_1_gender == "man"),
+    p_1_female_2_male = mean(actor_1_gender == "woman" & actor_2_gender == "man"),
+    p_1_first_alpha = mean(actor_1_name < actor_2_name)
+  )
+
+# let's put older characters first
+age_gaps = age_gaps %>% 
+  mutate(
+    couple_number = row_number(),
+    .by = "movie_name" # without grouping, create couple_number by movie_name
+  ) %>% 
+  # 1. Specify columns to pivot: columns that start with actor_1_ or actor_2_
+  # 2. Create column names based on the last value of the original column names separted by _.
+  pivot_longer(
+    cols = starts_with(c("actor_1_", "actor_2_")), 
+    names_to = c(NA, NA, ".value"), 
+    names_sep = "_"
+  ) %>% 
+  # Put the older actor first. Then, break the ties with movie name and birthday in ascending order.
+  # Then correct Ellen Page to Elliot page using new dplyr function: case_match
+  arrange(desc(age_difference), movie_name, birthdate) %>% 
+  mutate(
+    name = case_match(
+      name,
+      "Ellen Page" ~ "Elliot Page",
+      .default = name
+    )
+  ) %>% 
+  # Create a new row_number based on movie name and couple number for new column names.
+  # Then, pivot wider the table.
+  mutate(
+    position = row_number(),
+    .by = c("movie_name", "couple_number")
+  ) %>% 
+  pivot_wider(
+    names_from = "position",
+    values_from = c("name", "gender", "birthdate", "age"),
+    names_glue = "actor_{position}_{.value}"
+  )
+  
+# Clarify the gender related columns.
+age_gaps = age_gaps %>% 
+  rename(
+    "character_1_gender" = "actor_1_gender",
+    "character_2_gender" = "actor_2_gender",
+  )
+
+# Save the cleaned data
+write_csv(
+  age_gaps,
+  "age_gaps.csv"
+)
+```
+
+## Data Visualization
+```{r}
+# Load the data from the current directory
+age_gaps = read_csv("age_gaps.csv")
+
+glimpse(age_gaps)
+view(age_gaps)
+
+# Pivot wider the table to calculate mean age for each gender.
+age_wider = age_gaps %>% 
+  pivot_longer(
+    cols = starts_with(c("actor_1_", "actor_2_", "character_1_", "character_2_")),
+    names_sep = "_",
+    names_to = c(NA, NA, ".value")
+  )
+
+# Create a new df, age_mean_diff to capture: the average age of each gender per year and the average of the ages.
+age_mean_diff = age_wider %>% 
+  summarise(
+    mean_age = mean(age),
+    .by = c(release_year, gender)
+  ) %>% 
+  pivot_wider(
+    names_from = gender,
+    names_glue = "{gender}",
+    values_from = mean_age
+  ) %>% 
+  mutate(
+    mean_age_diff = abs(woman - man)
+  ) %>% 
+  arrange(
+    desc(mean_age_diff)
+  ) %>%
+  mutate(
+    release_year = fct_reorder(as.factor(release_year), man)
+  )
+
+# Specifying a color for each gender
+colors = c("Man" = "lightblue", "Woman" = "tomato3")
+
+knitr::opts_chunk$set(echo = TRUE, fig.width = 5, fig.height = 20)
+# Create a plot indicating the mean age difference for each year
+p = ggplot(data = age_mean_diff, aes(y = release_year)) +
+  
+  # Create line between the mean age of man and woman
+  geom_segment(aes(x = man, xend = woman, yend = release_year,
+                   text = paste0("asd"))) +
+  # Create a point for each mean age of man and woman
+  geom_point(aes(x = man, color = "Man",
+                   text = paste0("Avg. Age: ", round(man, 2), "\nYear: ", release_year,
+                                 "\nAge Diff: ", round(mean_age_diff, 2)))) +
+  geom_point(aes(x = woman, color = "Woman",
+                   text = paste0("Avg. Age: ", round(woman,2), "\nYear: ", release_year,
+                                 "\n Age Diff: ", round(mean_age_diff, 2)))) +
+  # Apply theme "fivethirtyeight"
+  theme_fivethirtyeight() +
+  # Remove y and x tick labels and horizontal grid lines to make the plot bit more cleaner
+  theme(
+    axis.text.y = element_blank(),
+    axis.text.x = element_blank(),
+    panel.grid.major = element_blank(),
+    plot.title = element_text(margin = margin(b = 20))
+  ) +
+  # Manually add legend
+  scale_color_manual(name = "", values = colors)
+```
+
+## Interactive Version
+```{r}
+# Create an interactive plot using plotly
+interactive_plot = ggplotly(p, tooltip = c("text"), width = 500, height = 800) %>% 
+  
+  # Get rid of toolbar and tip pop-ups
+  config(displayModeBar = FALSE, showTips = FALSE) %>% 
+  
+  # Disable zoom in/out
+  layout(xaxis = list(fixedrange = TRUE), yaxis = list(fixedrange = TRUE),
+         title = list(text = paste0("Hollywood Age Gaps (1935-2022)", # manually add subtitle using HTML
+                      "<br>",
+                      "<sup>",
+                      "The age difference between movie couples",
+                      "</sup>")),
+         legend = list(x = 0.8, y = 0.5, title = "",
+                       itemclick = FALSE,
+                       itemdoubleclick = FALSE,
+                       groupclick = FALSE), # disable legend click
+         margin = list(t = 70), 
+         annotations = list(x = 1, y = 0, text = "#TidyTuesday", showarrow = FALSE, 
+                           xref = "paper", yref = "paper", xanchor = "right", yanchor = "auto",
+                           xshift = 0, yshift = 0, font = list(size = 10, color = "gray"))) 
+
+api_create(interactive_plot, "Hollywood Age Gaps")
+```
+
