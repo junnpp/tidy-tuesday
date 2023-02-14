@@ -166,20 +166,23 @@ interactive_plot = ggplotly(p, tooltip = c("text"), width = 500, height = 800) %
   
   # Disable zoom in/out
   layout(xaxis = list(fixedrange = TRUE), yaxis = list(fixedrange = TRUE),
-         title = list(text = paste0("Hollywood Age Gaps (1935-2022)", # manually add subtitle using HTML
+         # manually add subtitle using HTML
+         title = list(text = paste0("Hollywood Age Gaps (1935-2022)",
                       "<br>",
                       "<sup>",
                       "The age difference between movie couples",
                       "</sup>")),
+         # re-position the legend and disable legend click feature
          legend = list(x = 0.8, y = 0.5, title = "",
                        itemclick = FALSE,
                        itemdoubleclick = FALSE,
-                       groupclick = FALSE), # disable legend click
+                       groupclick = FALSE),
          margin = list(t = 70), 
          annotations = list(x = 1, y = 0, text = "#TidyTuesday", showarrow = FALSE, 
                            xref = "paper", yref = "paper", xanchor = "right", yanchor = "auto",
                            xshift = 0, yshift = 0, font = list(size = 10, color = "gray"))) 
 
+# Upload this interactive plot to my plotly website
 api_create(interactive_plot, "Hollywood Age Gaps")
 ```
 
